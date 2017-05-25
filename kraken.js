@@ -1,4 +1,4 @@
-var request		= require('request');
+var request		= require('request-promise');
 var crypto		= require('crypto');
 var querystring	= require('querystring');
 
@@ -24,19 +24,18 @@ function KrakenClient(key, secret, otp) {
 	 * This method makes a public or private API request.
 	 * @param  {String}   method   The API method (public or private)
 	 * @param  {Object}   params   Arguments to pass to the api call
-	 * @param  {Function} callback A callback function to be executed when the request is complete
 	 * @return {Object}            The request object
 	 */
-	function api(method, params, callback) {
+	function api(method, params) {
 		var methods = {
 			public: ['Time', 'Assets', 'AssetPairs', 'Ticker', 'Depth', 'Trades', 'Spread', 'OHLC'],
 			private: ['Balance', 'TradeBalance', 'OpenOrders', 'ClosedOrders', 'QueryOrders', 'TradesHistory', 'QueryTrades', 'OpenPositions', 'Ledgers', 'QueryLedgers', 'TradeVolume', 'AddOrder', 'CancelOrder', 'DepositMethods', 'DepositAddresses', 'DepositStatus', 'WithdrawInfo', 'Withdraw', 'WithdrawStatus', 'WithdrawCancel']
 		};
 		if(methods.public.indexOf(method) !== -1) {
-			return publicMethod(method, params, callback);
+			return publicMethod(method, params);
 		}
 		else if(methods.private.indexOf(method) !== -1) {
-			return privateMethod(method, params, callback);
+			return privateMethod(method, params);
 		}
 		else {
 			throw new Error(method + ' is not a valid API method.');
@@ -47,26 +46,24 @@ function KrakenClient(key, secret, otp) {
 	 * This method makes a public API request.
 	 * @param  {String}   method   The API method (public or private)
 	 * @param  {Object}   params   Arguments to pass to the api call
-	 * @param  {Function} callback A callback function to be executed when the request is complete
 	 * @return {Object}            The request object
 	 */
-	function publicMethod(method, params, callback) {
+	function publicMethod(method, params) {
 		params = params || {};
 
 		var path	= '/' + config.version + '/public/' + method;
 		var url		= config.url + path;
 
-		return rawRequest(url, {}, params, callback);
+		return rawRequest(url, {}, params);
 	}
 
 	/**
 	 * This method makes a private API request.
 	 * @param  {String}   method   The API method (public or private)
 	 * @param  {Object}   params   Arguments to pass to the api call
-	 * @param  {Function} callback A callback function to be executed when the request is complete
 	 * @return {Object}            The request object
 	 */
-	function privateMethod(method, params, callback) {
+	function privateMethod(method, params) {
 		params = params || {};
 
 		var path	= '/' + config.version + '/private/' + method;
@@ -87,7 +84,7 @@ function KrakenClient(key, secret, otp) {
 			'API-Sign': signature
 		};
 
-		return rawRequest(url, headers, params, callback);
+		return rawRequest(url, headers, params);
 	}
 
 	/**
@@ -114,10 +111,9 @@ function KrakenClient(key, secret, otp) {
 	 * @param  {String}   url      The URL to make the request
 	 * @param  {Object}   headers  Request headers
 	 * @param  {Object}   params   POST body
-	 * @param  {Function} callback A callback function to call when the request is complete
 	 * @return {Object}            The request object
 	 */
-	function rawRequest(url, headers, params, callback) {
+	function rawRequest(url, headers, params) {
 		// Set custom User-Agent string
 		headers['User-Agent'] = 'Kraken Javascript API Client';
 
@@ -126,43 +122,26 @@ function KrakenClient(key, secret, otp) {
 			method: 'POST',
 			headers: headers,
 			form: params,
-			timeout: config.timeoutMS
+			timeout: config.timeoutMS,
+			json: true
 		};
 
-		var req = request.post(options, function(error, response, body) {
-			if(typeof callback === 'function') {
-				var data;
-
-				if(error) {
-					return callback.call(self, new Error('Error in server response: ' + JSON.stringify(error)), null);
-				}
-
-				try {
-					data = JSON.parse(body);
-				}
-				catch(e) {
-					return callback.call(self, new Error('Could not understand response from server: ' + body), null);
-				}
-				//If any errors occured, Kraken will give back an array with error strings under
-				//the key "error". We should then propagate back the error message as a proper error.
-				if(data.error && data.error.length) {
-					var krakenError = null;
-					data.error.forEach(function(element) {
-						if (element.charAt(0) === "E") {
-							krakenError = element.substr(1);
-							return false;
-						}
-					});
-					if (krakenError) {
-						return callback.call(self, new Error('Kraken API returned error: ' + krakenError), null);
+		return request.post(options)
+		.then(function (response) {
+			if (response.error && response.error.length) {
+				var error = null;
+				response.error.forEach(function(element) {
+					if (element.charAt(0) === "E") {
+						error = element.substr(1);
+						return false;
 					}
-				}
-				else {
-					return callback.call(self, null, data);
-				}
+				});
+
+				if (error) throw error;
+			} else {
+				return response.result;
 			}
 		});
-		return req;
 	}
 
 	self.api			= api;
